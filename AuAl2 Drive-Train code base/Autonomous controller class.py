@@ -1,7 +1,7 @@
 #imports
 import time
 import threading
-from math import sin,cos,tan,asin,acos,atan,pi,degrees,radians
+from math import sin,cos,tan,asin,acos,atan,pi,degrees,radians,sqrt
 
 
 ################################
@@ -10,6 +10,13 @@ from math import sin,cos,tan,asin,acos,atan,pi,degrees,radians
 StartPos = (0,0)
 Pos = StartPos #global ,field oriented position vector
 Heading = 0 #gloabl ,field oriented heading. starts at zero
+
+TrackingDiameter = 2.75 #design DB -v
+WheelDiameter = 3.75
+BotDiameter = 8
+
+
+MaxVelocity = 1
 
 #Waypoints
 WAYPOINTS = { #count, target, turn or drive, pid consts, 
@@ -112,6 +119,7 @@ class PIDController:
         self.umax = umax # integrator clamp max
         self.umin = umin # integrator clamp min
         
+    #   !These will belong to the Sensor Manager
         self.previous_error = 0     #all these are updated but start at zero
         self.previous_derivative = 0
         self.integral = 0
