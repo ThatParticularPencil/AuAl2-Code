@@ -1,0 +1,450 @@
+#region VEXcode Generated Robot Configuration
+from vex import *
+import urandom
+
+# Brain should be defined by default
+brain=Brain()
+
+# Robot configuration code
+controller_1 = Controller(PRIMARY)
+
+
+# wait for rotation sensor to fully initialize
+wait(30, MSEC)
+
+
+# Make random actually random
+def initializeRandomSeed():
+    wait(100, MSEC)
+    random = brain.battery.voltage(MV) + brain.battery.current(CurrentUnits.AMP) * 100 + brain.timer.system_high_res()
+    urandom.seed(int(random))
+      
+# Set random seed 
+initializeRandomSeed()
+
+
+def play_vexcode_sound(sound_name):
+    # Helper to make playing sounds from the V5 in VEXcode easier and
+    # keeps the code cleaner by making it clear what is happening.
+    print("VEXPlaySound:" + sound_name)
+    wait(5, MSEC)
+
+# add a small delay to make sure we don't print in the middle of the REPL header
+wait(200, MSEC)
+# clear the console to make sure we don't have the REPL in the console
+print("\033[2J")
+
+#endregion VEXcode Generated Robot Configuration
+
+# Library imports
+from vex import *
+#thread format is "Thread(func)"
+import time
+from math import sin,cos,tan,asin,acos,atan,pi,degrees,radians,sqrt
+
+#long beep for accell
+#short beep for intake and bumps
+
+################################
+#          Variables           #
+################################
+Driving = True
+
+scale = 10/3 
+deadtime = 35 # 1/deadtime = waittime between drawing
+deadtick = 24/deadtime #the speed used to scale the velocity to more reasonable numbers
+
+#INCHES to PIXELS = ~scale 
+#! PARALLAX ELEMENTS NEED TO BE PLACED WITH REGARD TO THE ORIGIN (72,72)
+# use this instead of self.X: self.Xcenter = 240+(self.X-240) * self.PX2   # defined from the center
+Scrolly = 0
+Scrollx = 0
+ 
+#Field Set-ups
+
+
+################################
+#      RENDERING FUNCTIONS     #
+################################
+
+def Screen_Text(bot): 
+    brain.screen.set_font(FontType.MONO12)
+    brain.screen.set_pen_color(Color.WHITE)
+    brain.screen.set_pen_width(1)
+
+    #brain.screen.set_cursor(1,38)
+    #brain.screen.print("TIME:",round(time.time(),1))
+    brain.screen.set_cursor(20,2)
+    brain.screen.print("NONSO'S BRAIN SIM  V0.2")
+
+def Data_Vis(): #writes timer, mechanism statuses, score, etc to the controller
+    while Driving == True:
+        controller_1.screen.set_cursor(1, 2)
+        controller_1.screen.print("X,Y:   ", B.X/scale, B.Y/scale)
+        controller_1.screen.next_row()
+        if B.clamped == True:
+            controller_1.screen.print("MOGO:", B.rings, "rings")
+        else:
+            controller_1.screen.print("CLAMP UNACTIVE")
+        controller_1.screen.next_row()
+        controller_1.screen.print(" Score: ", B.Score)
+        wait(.5, SECONDS)
+        controller_1.screen.clear_screen()
+
+
+
+
+def thickline(st,sp,thickness=None, color = None):
+    #takes two tuples
+    if thickness != None:
+        brain.screen.set_pen_width(thickness)
+    '''if pencolor not = None:
+        brain.screen.set_pen_color()'''
+
+    brain.screen.draw_line(st[0], st[1], sp[0], sp[1])
+
+def thickrect(corners,thickness):
+    for i in range(3):
+        thickline(corners[i],corners[i+1],thickness)
+    thickline(corners[3],corners[0],thickness)
+
+
+################################
+#            ROBOT             #
+################################
+
+class bot:
+    # Bot position is defined by center
+    def __init__(self, diameter, X, Y, head = 0, strength=.21, maxspeed=20, friction=.16):
+        self.radius = sqrt(2*((scale/2)*diameter)**2)  # Corner radius for diameter in inches
+        self.hitbox = (self.radius + scale*diameter/2)/2  #radius of the hitbox
+        self.strength = strength / (3*scale)
+        self.maxspeed = maxspeed
+        self.friction = friction
+        self.X = X * scale
+        self.Y = Y * scale
+        self.prevX = self.X
+        self.prevY = self.Y
+        self.prevTime = time.time()
+        self.head = radians(head)  # Convert to radians
+        self.prevHead = self.head
+
+        self.corners = None
+        self.hitlist = []
+
+        self.vel = 0
+        self.accel = 0
+        
+        self.turnVel = 0
+        self.prevTurnVel = 0
+        self.turnAccel = 0
+        self.prevTurnAccel = 0
+
+        self.clamped = False
+        self.rings = 0
+        self.Score = 0
+        
+
+    '''def jump_rumble(self):
+        Jerk = abs(self.accel - self.prevAccel)
+        print(self.accel,self.prevAccel,"Jerk",Jerk)
+        if Jerk > 2:
+            controller_1.rumble(".")'''
+
+    ##############################
+    def drawbot(self):
+        global Scrolly
+        global Scrollx
+        # Calculate delta time
+        #current_time = time.time()
+        self.deltaTime = deadtick #cheat method instead of: current_time - self.prevTime
+        if self.deltaTime <= 0:
+            self.deltaTime = 0.001  # Prevent division by zero
+
+        stick1 = controller_1.axis3.position()  
+        stick2 = controller_1.axis1.position()
+
+        # Calculate velocity components
+        xvel =  (self.X - self.prevX) / self.deltaTime
+        yvel =  (self.Y - self.prevY) / self.deltaTime
+
+        # Calculate acceleration in the direction of motion
+        #self.prevAccel = self.accel
+        self.accel = self.strength * stick1 - self.friction * self.vel
+        self.vel += self.accel * self.deltaTime  # Apply acceleration smoothly
+
+        # Clamp velocity to a reasonable max
+        if self.vel > self.maxspeed:
+            self.vel = self.maxspeed
+        elif self.vel < -self.maxspeed:
+            self.vel = -self.maxspeed  # Prevent excessive speed in reverse
+
+        if -.001 < self.vel < .001:
+            self.vel = 0
+        # Store previous position
+        self.prevX, self.prevY = self.X, self.Y
+
+        # Update position based on new velocity, scaled by deltaTime
+        deltaX = round(self.vel * cos(self.head) * self.deltaTime,3)
+        deltaY = round(self.vel * sin(self.head) * self.deltaTime,3)
+
+        #!Out of bounds Checking #raycasting for collisions
+        for i in range(4):
+            brain.screen.set_pen_color(Color.PURPLE)
+            if 0 >= self.X + (self.hitbox)*cos((pi*i)/2) and deltaX < 0:
+                deltaX = 0
+            elif 144*scale <= self.X + (self.hitbox)*cos((pi*i)/2) and deltaX > 0:
+                deltaX = 0
+        
+            if 0 >= self.Y + (self.hitbox)*sin((pi*i)/2) and deltaY < 0:
+                deltaY = 0
+            elif 144*scale <= self.Y + (self.hitbox)*sin((pi*i)/2) and deltaY >0:
+                deltaY = 0
+           
+        
+            brain.screen.draw_pixel(240+deltaX+self.hitbox*cos(pi*i/2), 120+deltaY+self.hitbox*sin(pi*i/2))
+
+                
+        self.X += deltaX
+        Scrollx -= deltaX
+        self.Y += deltaY
+        Scrolly -= deltaY
+
+
+        # Turning velocity components
+        tvel =  (self.head - self.prevHead) / self.deltaTime
+
+        #turn accel
+        self.turnAccel = .0015 * stick2 - self.friction * self.turnVel *3
+        self.turnVel += self.turnAccel * self.deltaTime  # Apply acceleration smoothly
+
+        if -.001 < self.turnVel < .001:
+            self.turnVel = 0
+        # Store previous position
+        self.prevTurnVel = self.turnVel
+
+        # Update heading based on new velocity, scaled by deltaTime and velocity
+        self.TurnSens = abs(self.vel)*controller_1.axis1.position()/12000
+        self.head += round(self.turnVel * self.deltaTime,3) - self.TurnSens
+
+
+        ###############################
+        self.corners = [
+            (240 + self.radius*cos(self.head + 3*pi/4), 120 + self.radius*sin(self.head + 3*pi/4)),
+            (240 + self.radius*cos(self.head + pi/4), 120 + self.radius*sin(self.head + pi/4)),
+            (240 + self.radius*cos(self.head + 7*pi/4), 120 + self.radius*sin(self.head + 7*pi/4)),
+            (240 + self.radius*cos(self.head + 5*pi/4), 120 + self.radius*sin(self.head + 5*pi/4))
+        ]
+        brain.screen.set_pen_color(Color.WHITE)
+        brain.screen.set_fill_color(Color.TRANSPARENT)
+
+        for item in self.corners:
+            brain.screen.draw_pixel(item[0],item[1])
+        thickrect(self.corners,3)
+
+        brain.screen.set_pen_width(2)
+        brain.screen.draw_circle(240+(-3/5*self.radius)*cos(self.head), 120+(-3/5*self.radius)*sin(self.head) , self.radius/6)
+        
+        #self.jump_rumble()
+
+    '''        self.TurnSens = abs(self.vel)*controller_1.axis1.position()/17000
+        self.head += (controller_1.axis1.position())/(15*deadtime)-self.TurnSens'''
+
+################################
+#         FIELD ELEMENTS       #
+################################
+# 480 x 240 Resolution; 144 x 144 inches
+
+class Field_Element:
+    def __init__(self, X, Y, Layer=0):
+        self.X = X * scale
+        self.Y = Y * scale
+        self.PX = 1 + (Layer*.1)
+
+class Mark(Field_Element):   
+    def draw(self):
+        brain.screen.draw_pixel(self.X + Scrollx, self.Y +Scrolly)
+
+class Leg(Field_Element):
+    def __init__(self, X, Y, radius = 7.9/2):
+        super().__init__(X,Y)
+        self.radius = radius*scale
+    def draw(self):
+        brain.screen.draw_circle(self.X + Scrollx, self.Y +Scrolly, self.radius)
+
+class Border(Field_Element):
+    def draw(self):
+        brain.screen.set_pen_color(Color.WHITE)
+        brain.screen.set_pen_width(2)
+        brain.screen.set_fill_color(Color.TRANSPARENT)
+        w,h = 144*scale, 144*scale
+        brain.screen.draw_rectangle(self.X+Scrollx, self.Y+Scrolly, w,h)
+
+class Ladder(Field_Element):
+    def __init__(self,X,Y, Layer, Col = "yellow"):
+        self.Col = Col
+        self.PX = 1 + (Layer*.09)
+        self.X = X*scale * 1
+        self.Y = Y*scale * 1#+(16.6*self.PX)
+        self.Xcenter = 240+(self.X-240) * self.PX
+        self.Ycenter = 120+(self.Y-120) * self.PX
+        self.radius = 24*scale*self.PX
+        self.penscale = int(11 + (self.PX/.6))
+        self.corners = None
+
+    def draw(self):
+        #p = self.PX
+        if self.Col == "yellow":
+            brain.screen.set_pen_color(Color.YELLOW)
+        elif self.Col == "purple":
+            brain.screen.set_pen_color(Color.PURPLE)
+        else:
+            brain.screen.set_pen_color(Color.BLUE)
+        self.corners = [
+            ((self.Xcenter + (Scrollx*self.PX)) + 0,           (self.Ycenter + (Scrolly*self.PX)) + self.radius), #0s and 1s are replacing trig btw
+            ((self.Xcenter + (Scrollx*self.PX)) + self.radius, (self.Ycenter + (Scrolly*self.PX)) + 0),           #see drawbot()
+            ((self.Xcenter + (Scrollx*self.PX)) + 0,           (self.Ycenter + (Scrolly*self.PX)) - self.radius),
+            ((self.Xcenter + (Scrollx*self.PX)) - self.radius, (self.Ycenter + (Scrolly*self.PX)) + 0)
+        ]
+
+        thickrect(self.corners,self.penscale)
+            
+class Stake(Field_Element):
+    def __init__(self, X,Y,Layer = 0,Base = True,Col = "yellow"):
+        super().__init__(X,Y,Layer)
+        self.Base = Base
+        self.PX2 = 1 + ((Layer+.5)*.1)
+        self.Col = Col
+
+        self.Xcenter = 240+(self.X-240) * self.PX2
+        self.Ycenter = 120+(self.Y-120) * self.PX2
+    def draw(self):
+        brain.screen.set_fill_color(Color.BLACK)
+        if self.Col == "red":
+            brain.screen.set_pen_color(Color.RED)
+        elif self.Col == "blue":
+            brain.screen.set_pen_color(Color.BLUE)
+        else:
+            brain.screen.set_pen_color(Color.YELLOW)
+        brain.screen.set_pen_width(3)
+        if self.Base == True:
+            brain.screen.draw_circle(self.X + Scrollx, self.Y + Scrolly, 5*scale)
+        brain.screen.set_fill_color(Color.YELLOW)
+        brain.screen.draw_circle(self.Xcenter + (Scrollx * self.PX2), self.Ycenter + (Scrolly * self.PX2), 1.5*scale*self.PX2) #defined from the center
+        thickline((self.X + Scrollx,self.Y + Scrolly),(self.Xcenter + (Scrollx * self.PX2), self.Ycenter + (Scrolly * self.PX2)),6)
+
+class Ring_Stack(Field_Element):
+    def __init__(self, X,Y, Layer, Height, Col):
+        super().__init__(X,Y,Layer)
+        self.Height = Height
+        self.Col = Col
+    def draw(self):
+        if self.Height == 1:
+            if self.Col == "blue":
+                brain.screen.set_pen_color(Color.BLUE)
+            else:
+                brain.screen.set_pen_color(Color.RED)
+            brain.screen.set_pen_width(int(round(2*scale,0)))
+            brain.screen.draw_circle(self.X + Scrollx, self.Y + Scrolly, 2.5*scale)
+
+
+################################
+#         GAMEPLAY LOOP        #   
+################################
+
+#Inits
+B = bot(16,72,72,270)
+Scrollx = 240-(B.X)
+Scrolly = 120-(B.Y)
+
+Marks = [ #generates tile intersections
+    Mark(m,n) 
+    for m in range(24,144,24)
+    for n in range(24,144,24)
+]
+
+Tower_Legs = [
+    Leg(72,48),
+    Leg(96,72),
+    Leg(72,96),
+    Leg(48,72),
+]
+
+Rung1 = Ladder(72,72,2,"purple")
+Rung3 = Ladder(72,72,4,"yellow")
+
+Border = Border(0,0)
+
+Stake_Positions_Comp = [
+    Stake(48,48),
+    Stake(48,96),
+    Stake(96,48),
+    Stake(120,72),
+    Stake(96,96),
+    Stake(0,72,1,False),
+    Stake(144,72,1,False),
+    Stake(72,0,.5,False,"blue"),
+    Stake(72,144,.5,False,"red"),
+] 
+Stake_Positions_Skills = [
+    Stake(48,120),
+    Stake(96,120),
+    Stake(48,12),
+    Stake(72,24),
+    Stake(96,12),
+    Stake(0,72,1,False),
+    Stake(144,72,1,False),
+    Stake(72,0,.5,False,"blue"),
+    Stake(72,144,.5,False,"red"),
+]
+
+Rings = [
+    Ring_Stack(120,96,0,1,"red"),
+]
+
+#############################################
+Controller_Data = Thread(Data_Vis)
+def main():
+    while True:
+        for mark in Marks:
+            mark.draw()
+        for leg in Tower_Legs:
+            leg.draw()
+        for ring in Rings:
+            ring.draw()
+        for stake in Stake_Positions_Skills:
+            stake.draw()
+        B.drawbot()
+        Rung1.draw()
+        Rung3.draw()
+
+        Border.draw()
+        Screen_Text(B) 
+
+        wait(1/deadtime,SECONDS)
+        brain.screen.clear_screen()
+
+
+main()
+
+
+'''
+ - Welcome
+- Course selection
+- **Driving set up **
+	- Robot is an empty white or grey box
+	- there is haptic rumble when driving (and maybe the pixels will change color) 	
+- field building
+	- Full size rectangular field
+	- timer at the top
+	- Field elements:
+		- Stakes are yellow circles that turn green when they are full
+		- Rings are red or blue particles 
+			- (I want to implement particle physics so you cant just drive through rings, but it will be hard. It would require the rings to have set radii, and trig to calculate the forces. )
+		- the tower is just represented by circular wall legs 
+		- the bounding boxes uf the field are walls as well. 
+			- (if you hit a wall, your axis of acceleration perpendicular to the wall is zeroed and you only mmove and pushed based on the parallel axis.)
+    
+'''
+
+
